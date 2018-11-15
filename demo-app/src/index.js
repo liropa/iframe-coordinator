@@ -42,16 +42,31 @@ registerElements();
 // ----- Client/Nav Setup
 
 let router = document.getElementById("router");
-router.registerClients(
-  NAV_CONFIGS.reduce((clientMap, { id, url, assignedRoute }) => {
+router.registerClients({
+  // Build client list from nav entries
+  routedClients: NAV_CONFIGS.reduce((clientMap, { id, url, assignedRoute }) => {
     clientMap[id] = {
       url,
       assignedRoute
     };
 
     return clientMap;
-  }, {})
-);
+  }, {}),
+  backgroundClients: {
+    // Standard worker
+    'backgroundWorker1': {
+      url: new URL("/workers/demo-worker.js", window.location).toString(),
+    },
+    // Tests js failures within the worker
+    'backgroundWorkerFailureTest': {
+      url: new URL("/workers/failure-worker.js", window.location).toString(),
+    },
+    // Tests the 404 worker case
+    'backgroundWorkerNotFoundTest': {
+      url: new URL("/workers/non-existant-worker.js", window.location).toString(),
+    }
+  }
+});
 
 buildNavMarkup(NAV_CONFIGS);
 

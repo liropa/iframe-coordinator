@@ -3,8 +3,21 @@ import { HostRouter, RoutingMap } from '../HostRouter';
 import { ClientToHost } from '../messages/ClientToHost';
 import { Publication } from '../messages/Publication';
 import { SubscriptionManager } from '../SubscriptionManager';
+import { WorkerToHostMessageTypes } from '../workers/constants';
+import WorkerManager, {
+  BackgroundMap,
+  WORKER_MESSAGE_EVENT_TYPE
+} from '../workers/worker-manager';
 
 const ROUTE_ATTR = 'route';
+
+/**
+ * A map of client types, routed and background, to the required config for said clients.
+ */
+export interface ClientsConfig {
+  routedClients?: RoutingMap;
+  backgroundClients?: BackgroundMap;
+}
 
 /**
  * A DOM element responsible for communicating
@@ -16,6 +29,7 @@ class FrameRouterElement extends HTMLElement {
   private _frameManager: FrameManager;
   private _subscriptionManager: SubscriptionManager;
   private _router: HostRouter;
+  private _workerMgr: WorkerManager;
 
   constructor() {
     super();
@@ -59,9 +73,57 @@ class FrameRouterElement extends HTMLElement {
    *
    * @param clients The map of registrations for the available clients.
    */
-  public registerClients(clients: RoutingMap) {
-    this._router = new HostRouter(clients);
+  public registerClients(clientsCfg: ClientsConfig) {
+    this._router = new HostRouter(clientsCfg.routedClients || {});
     this.changeRoute(this.getAttribute(ROUTE_ATTR) || 'about:blank');
+
+    if (
+      !clientsCfg.backgroundClients ||
+      Object.keys(clientsCfg.backgroundClients).length === 0
+    ) {
+      return;
+    }
+
+    try {
+      this._workerMgr = new WorkerManager();
+    } catch {
+      // TODO Need to add proper logging support
+      // tslint:disable-next-line
+      console.error(
+        'Your browser does not support Workers.  Background clients cannot be started.'
+      );
+
+      return;
+    }
+
+    this._workerMgr.addEventListener(
+      WORKER_MESSAGE_EVENT_TYPE,
+      (evt: CustomEvent) => {
+        if (evt && evt.detail && evt.detail.msgType) {
+          switch (evt.detail.msgType) {
+            case WorkerToHostMessageTypes.navRequest:
+            // Intentional fall-through. Consistent handling for known types
+            case WorkerToHostMessageTypes.toastRequest:
+              this.dispatchEvent(
+                new CustomEvent(evt.detail.msgType, { detail: evt.detail.msg })
+              );
+              break;
+            // TODO pub/sub, others?
+            default:
+              // TODO Need to add proper logging support
+              // tslint:disable-next-line
+              console.error('Unhandled msgType received from worker', {
+                msgType: evt.detail.msgType
+              });
+              break;
+          }
+        }
+      }
+    );
+
+    Object.keys(clientsCfg.backgroundClients).forEach(currConfigId => {
+      this._workerMgr.load(clientsCfg.backgroundClients![currConfigId].url);
+    });
   }
 
   /**

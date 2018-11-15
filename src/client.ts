@@ -1,3 +1,4 @@
+import { ToastingClient } from './basic-types';
 import {
   ClientToHost,
   validate as validateOutgoing
@@ -22,7 +23,7 @@ interface ClientConfigOptions {
 /**
  * The Client is access point for the embedded UI's in the host application.
  */
-class Client {
+class Client implements ToastingClient {
   private _subscriptionManager: SubscriptionManager;
   private _isStarted: boolean;
   private _clientWindow: Window;
@@ -138,25 +139,6 @@ class Client {
     this._subscriptionManager.setHandler(callback);
   }
 
-  /**
-   * Request a toast message be displayed by the host.
-   *
-   * The page embedding the host is responsible for handling the fired custom event and
-   * presenting/styling the toast.  Application-specific concerns such as level, TTLs,
-   * ids for action callbacks (toast click, toast action buttons), etc. can be passed via an object
-   * as the custom property of the options param.
-   *
-   * @param toast the desired toast configuration.
-   *
-   * @example
-   * worker.requestToast({ title: 'Hello world' });
-   *
-   * @example
-   * worker.requestToast({ title: 'Hello', message: 'World' });
-   *
-   * @example
-   * worker.requestToast({ title: 'Hello', message: 'World', custom: { ttl: 5, level: 'info' } });
-   */
   public requestToast(toast: Toast) {
     this._sendToHost({
       msgType: 'toastRequest',

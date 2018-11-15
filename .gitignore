@@ -1,11 +1,14 @@
 node_modules/
-/client.js
-/host.js
-/index.js
 .npmrc
 
+# Artifacts form ts build/serve
 /*.d.ts
 /elements/
 /specs/
 /messages/
 /ports/
+/workers/
+/client.js
+/host.js
+/index.js
+/BackgroundClient.js
