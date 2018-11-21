@@ -1,7 +1,9 @@
 import {
-  WORKER_MESSAGING_PROTOCOL_NAME,
-  WorkerLifecycleEvents
-} from './constants';
+  SpawnWorkerToWorkerMgr,
+  validateWorkerMgrToSpawnWorker,
+  WorkerLifecycleMsgTypes
+} from '../messages/WorkerLifecycle';
+import { WORKER_MESSAGING_PROTOCOL_NAME } from './constants';
 
 const ctx: Worker = self as any;
 let spawnWorkerToken: null | string = null;
@@ -11,46 +13,77 @@ ctx.addEventListener('message', handleHostMessage);
 /**
  * Handles spawn-relavent inbound messages from the WorkerManager
  */
-function handleHostMessage(evt: MessageEvent) {
-  if (evt && evt.data && evt.data.protocol === WORKER_MESSAGING_PROTOCOL_NAME) {
-    switch (evt.data.msgType) {
-      case WorkerLifecycleEvents.bootstrap:
-        try {
-          spawnWorkerToken = evt.data.spawnWorkerToken;
-          importScripts(evt.data.workerUrl);
-          _sendMessageToHost(WorkerLifecycleEvents.bootstrapped);
-        } catch (error) {
-          _sendMessageToHost(WorkerLifecycleEvents.bootstrap_failed, {
-            error: error ? error.toString() : 'No Error Details'
-          });
+function handleHostMessage(msgEvt: MessageEvent): boolean {
+  if (
+    !msgEvt ||
+    !msgEvt.data ||
+    msgEvt.data.protocol !== WORKER_MESSAGING_PROTOCOL_NAME
+  ) {
+    return false;
+  }
+
+  const lifecycleMsg = validateWorkerMgrToSpawnWorker(msgEvt.data);
+
+  if (lifecycleMsg === null) {
+    // No logging needed here; Other messages may be handled by the worker itself
+    return false;
+  }
+
+  switch (lifecycleMsg.msgType) {
+    case WorkerLifecycleMsgTypes.Bootstrap:
+      try {
+        spawnWorkerToken = lifecycleMsg.msg.spawnWorkerToken;
+        importScripts(lifecycleMsg.msg.workerUrl);
+        _sendLifecycleMsgToMgr({
+          msgType: WorkerLifecycleMsgTypes.Bootstrapped,
+          msg: {
+            spawnWorkerToken: spawnWorkerToken!
+          }
+        });
+      } catch (error) {
+        _sendLifecycleMsgToMgr({
+          msgType: WorkerLifecycleMsgTypes.BootstrapFailed,
+          msg: {
+            spawnWorkerToken: spawnWorkerToken!,
+            failureReason: error ? error.toString() : null
+          }
+        });
+      }
+
+      return true;
+    case WorkerLifecycleMsgTypes.BeforeTerminate:
+      ctx.removeEventListener('message', handleHostMessage);
+      _sendLifecycleMsgToMgr({
+        msgType: WorkerLifecycleMsgTypes.SpawnWorkerTerminateReady,
+        msg: {
+          spawnWorkerToken: spawnWorkerToken!
         }
-        break;
-      case WorkerLifecycleEvents.before_unload:
-        ctx.removeEventListener('message', handleHostMessage);
-        _sendMessageToHost(WorkerLifecycleEvents.unload_ready);
-        break;
-      default:
-        // No logging needed here; Other messages may be handled by the worker itself
-        break;
-    }
+      });
+
+      return true;
   }
 }
 
+// Notify the WorkerManager that the spawn worker has loaded successfully
+_sendLifecycleMsgToMgr({
+  msgType: WorkerLifecycleMsgTypes.SpawnWorkerLoaded,
+  msg: null
+});
+
 /**
- * Dispatch the provided payload the WorkerManager
+ * Dispatch the provided lifecycle message to the WorkerManager
  *
  * @private
  */
-function _sendMessageToHost(msgType: string, payload: object = {}) {
-  ctx.postMessage({
-    protocol: WORKER_MESSAGING_PROTOCOL_NAME,
-    msgType,
-    msg: Object.assign({}, payload, {
-      spawnWorkerToken
-    })
-  });
+function _sendLifecycleMsgToMgr(lifecycleMsg: SpawnWorkerToWorkerMgr) {
+  ctx.postMessage(
+    Object.assign(
+      {
+        protocol: WORKER_MESSAGING_PROTOCOL_NAME
+      },
+      lifecycleMsg
+    )
+  );
 }
-
-_sendMessageToHost(WorkerLifecycleEvents.loaded);
 
 export default null as any;

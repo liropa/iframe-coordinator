@@ -2,12 +2,9 @@ import FrameManager from '../FrameManager';
 import { HostRouter, RoutingMap } from '../HostRouter';
 import { ClientToHost } from '../messages/ClientToHost';
 import { Publication } from '../messages/Publication';
+import { WorkerToHost } from '../messages/WorkerToHost';
 import { SubscriptionManager } from '../SubscriptionManager';
-import { WorkerToHostMessageTypes } from '../workers/constants';
-import WorkerManager, {
-  BackgroundMap,
-  WORKER_MESSAGE_EVENT_TYPE
-} from '../workers/worker-manager';
+import WorkerManager, { BackgroundMap } from '../workers/worker-manager';
 
 const ROUTE_ATTR = 'route';
 
@@ -85,7 +82,9 @@ class FrameRouterElement extends HTMLElement {
     }
 
     try {
-      this._workerMgr = new WorkerManager();
+      this._workerMgr = new WorkerManager(
+        this._handleWorkerMessages.bind(this)
+      );
     } catch {
       // TODO Need to add proper logging support
       // tslint:disable-next-line
@@ -95,31 +94,6 @@ class FrameRouterElement extends HTMLElement {
 
       return;
     }
-
-    this._workerMgr.addEventListener(
-      WORKER_MESSAGE_EVENT_TYPE,
-      (evt: CustomEvent) => {
-        if (evt && evt.detail && evt.detail.msgType) {
-          switch (evt.detail.msgType) {
-            case WorkerToHostMessageTypes.navRequest:
-            // Intentional fall-through. Consistent handling for known types
-            case WorkerToHostMessageTypes.toastRequest:
-              this.dispatchEvent(
-                new CustomEvent(evt.detail.msgType, { detail: evt.detail.msg })
-              );
-              break;
-            // TODO pub/sub, others?
-            default:
-              // TODO Need to add proper logging support
-              // tslint:disable-next-line
-              console.error('Unhandled msgType received from worker', {
-                msgType: evt.detail.msgType
-              });
-              break;
-          }
-        }
-      }
-    );
 
     Object.keys(clientsCfg.backgroundClients).forEach(currConfigId => {
       this._workerMgr.load(clientsCfg.backgroundClients![currConfigId].url);
@@ -193,6 +167,13 @@ class FrameRouterElement extends HTMLElement {
   private _dispatchClientMessage(message: ClientToHost) {
     this.dispatchEvent(
       new CustomEvent(message.msgType, { detail: message.msg })
+    );
+  }
+
+  private _handleWorkerMessages(workerMessage: WorkerToHost) {
+    // TODO pub/sub, others?
+    this.dispatchEvent(
+      new CustomEvent(workerMessage.msgType, { detail: workerMessage.msg })
     );
   }
 }
