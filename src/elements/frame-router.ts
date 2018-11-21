@@ -4,16 +4,16 @@ import { ClientToHost } from '../messages/ClientToHost';
 import { Publication } from '../messages/Publication';
 import { WorkerToHost } from '../messages/WorkerToHost';
 import { SubscriptionManager } from '../SubscriptionManager';
-import WorkerManager, { BackgroundMap } from '../workers/worker-manager';
+import WorkerManager, { WorkerMap } from '../workers/worker-manager';
 
 const ROUTE_ATTR = 'route';
 
 /**
- * A map of client types, routed and background, to the required config for said clients.
+ * A map of client types, routed and worker, to the required config for said clients.
  */
 export interface ClientsConfig {
   routedClients?: RoutingMap;
-  backgroundClients?: BackgroundMap;
+  workerClients?: WorkerMap;
 }
 
 /**
@@ -75,8 +75,8 @@ class FrameRouterElement extends HTMLElement {
     this.changeRoute(this.getAttribute(ROUTE_ATTR) || 'about:blank');
 
     if (
-      !clientsCfg.backgroundClients ||
-      Object.keys(clientsCfg.backgroundClients).length === 0
+      !clientsCfg.workerClients ||
+      Object.keys(clientsCfg.workerClients).length === 0
     ) {
       return;
     }
@@ -89,14 +89,14 @@ class FrameRouterElement extends HTMLElement {
       // TODO Need to add proper logging support
       // tslint:disable-next-line
       console.error(
-        'Your browser does not support Workers.  Background clients cannot be started.'
+        'Your browser does not support Workers.  Worker clients cannot be started.'
       );
 
       return;
     }
 
-    Object.keys(clientsCfg.backgroundClients).forEach(currConfigId => {
-      this._workerMgr.load(clientsCfg.backgroundClients![currConfigId].url);
+    Object.keys(clientsCfg.workerClients).forEach(currConfigId => {
+      this._workerMgr.load(clientsCfg.workerClients![currConfigId].url);
     });
   }
 

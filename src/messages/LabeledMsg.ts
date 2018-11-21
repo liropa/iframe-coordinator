@@ -1,7 +1,7 @@
 /**
  * Labeled message is a general structure
  * used by all coordinated messages between
- * host, client, and background clients.
+ * host, client, and worker clients.
  *
  * The msgType will indicate the nature of
  * the message. The msg will contain the

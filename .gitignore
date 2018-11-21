@@ -11,4 +11,4 @@ node_modules/
 /client.js
 /host.js
 /index.js
-/BackgroundClient.js
+/WorkerClient.js

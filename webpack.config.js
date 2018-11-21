@@ -38,7 +38,7 @@ module.exports = [{
 }, {
   mode: "none",
   entry: {
-    BackgroundClient: "./src/BackgroundClient.ts"
+    WorkerClient: "./src/WorkerClient.ts"
   },
   target: 'webworker',
   output: {

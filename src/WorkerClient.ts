@@ -18,16 +18,17 @@ const ctx: Worker = self as any;
 type BeforeTerminateCallback = () => void;
 
 /**
- * BackgroundClient is an API for headless workers to communicate with other actors
+ * WorkerClient is an API for headless workers to communicate with other actors
  * in an iframe-coordinator managed app.
  *
  * An instance should be constructed and used by web-workers and can be used to
- * do things such as request toasts from the host app, request navigation, etc.
+ * do things such as request toasts from the host app, request navigation, handle inbound
+ * messages, etc.
  *
  * Users of this API are encouraged to use other web technologies (fetch, web-sockets, etc.)
  * along with this API to build compelling, headless features in their apps.
  */
-export default class BackgroundClient
+export default class WorkerClient
   implements ToastingClient, EventListenerObject {
   private _onBeforeTerminateCallback: null | BeforeTerminateCallback;
 

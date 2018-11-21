@@ -18,18 +18,18 @@ import { WORKER_MESSAGING_PROTOCOL_NAME } from './constants';
 import * as SpawnWorker from './spawn-worker.worker.ts';
 
 /**
- * A map from background client identifiers to configuration describing
- * where the background client app is hosted, options on how it should run, etc.
+ * A map from worker client identifiers to configuration describing
+ * where the worker client app is hosted, options on how it should run, etc.
  */
-export interface BackgroundMap {
-  [key: string]: BackgroundClientRegistration;
+export interface WorkerMap {
+  [key: string]: WorkerClientRegistration;
 }
 
 /**
- * BackgroundClient registration config. The 'url' parameter is the location where
- * the background client application is hosted.
+ * WorkerClient registration config. The 'url' parameter is the location where
+ * the worker is hosted.
  */
-interface BackgroundClientRegistration {
+interface WorkerClientRegistration {
   url: string;
   // TODO add config options here like error rates, etc.
 }
@@ -41,17 +41,14 @@ const DEFAULT_UNLOAD_TIMEOUT_MILLIS = 10000;
 /*
  * TODO for this feature:
 
- * Rename BAckgroundClient
  * Clean up file naming
  * Decide on toastingClient api
+   * Will docs get pulled in correctly? pull them from client.ts
  * Should we keep protocol?
  *  if so, move from constants
  *  otherwise, remove constants, send, and receive
- * move registration of background clients into class?  auto-load?
+ * move registration of worker clients into class?  auto-load?
  * Need to revisit naming:
-  * worker vs backgroundClient (dev has to know its a worker)
-  * worker and workerManger
-  * workerMgr vs host
   * spawnWorker vs loadingWorker vs bootstrappingWorker
  * add config option so spawned workers can request shutdown
  * Move config to be per-worker
@@ -68,14 +65,13 @@ const DEFAULT_UNLOAD_TIMEOUT_MILLIS = 10000;
  *    unloadTimeoutMillis: number;
  *  }
  * get bi-directional comms working
- *  need to add an interface for the background client
+ *  need to add an interface for the worker client
  *  need to add listener for events
- * Finalize backgroundClient api
+ * Finalize workerClient api
    * Check on impl interface idea and add NavigationRequester interface
-   * should navRequest be url based?
-   * Will docs get pulled in correctly? pull them from client.ts
+   
  * docs
- *   dont forget that this is sorta dangerous with indexeddb
+   *   dont forget that this is sorta dangerous with indexeddb
  *
  * Is the import of the worker good enough?
   * Decide on class or text of the worker
@@ -97,7 +93,7 @@ const DEFAULT_UNLOAD_TIMEOUT_MILLIS = 10000;
  *    will need to support a restart
  */
 
-/** The Lifecycle Phases of Background Client Workers */
+/** The Lifecycle Phases of Client Workers */
 enum WorkerPhase {
   /** The initial spawning web-worker is loading */
   LOADING,

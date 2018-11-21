@@ -52,17 +52,17 @@ router.registerClients({
 
     return clientMap;
   }, {}),
-  backgroundClients: {
+  workerClients: {
     // Standard worker
-    'backgroundWorker1': {
+    'worker1': {
       url: new URL("/workers/demo-worker.js", window.location).toString(),
     },
     // Tests js failures within the worker
-    'backgroundWorkerFailureTest': {
+    'workerFailureTest': {
       url: new URL("/workers/failure-worker.js", window.location).toString(),
     },
     // Tests the 404 worker case
-    'backgroundWorkerNotFoundTest': {
+    'workerNotFoundTest': {
       url: new URL("/workers/non-existant-worker.js", window.location).toString(),
     }
   }

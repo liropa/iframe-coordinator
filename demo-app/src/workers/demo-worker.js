@@ -1,8 +1,8 @@
-import BackgroundClient from "iframe-coordinator/BackgroundClient";
+import WorkerClient from "iframe-coordinator/WorkerClient";
 // TODO Need a better demo that makes more sense?
 
-const client = new BackgroundClient(() => {
-  // Shutdown requested from host.  Clean-up; BackgroundClient will ack
+const client = new WorkerClient(() => {
+  // Shutdown requested from host.  Clean-up; WorkerClient will ack
   if (currTimeout) {
     clearTimeout(currTimeout);
     currTimeout = null;
