@@ -82,9 +82,9 @@ class FrameRouterElement extends HTMLElement {
     }
 
     try {
-      this._workerMgr = new WorkerManager(
-        this._handleWorkerMessages.bind(this)
-      );
+      this._workerMgr = new WorkerManager({
+        onWorkerToHostMessage: this._handleWorkerMessages.bind(this)
+      });
     } catch {
       // TODO Need to add proper logging support
       // tslint:disable-next-line
@@ -96,7 +96,7 @@ class FrameRouterElement extends HTMLElement {
     }
 
     Object.keys(clientsCfg.workerClients).forEach(currConfigId => {
-      this._workerMgr.load(clientsCfg.workerClients![currConfigId].url);
+      this._workerMgr.load(clientsCfg.workerClients![currConfigId]);
     });
   }
 

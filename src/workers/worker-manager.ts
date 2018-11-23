@@ -3,6 +3,15 @@
 isn't called.  Also, the umd version of the module can't find the default since the worker-loader
 seems to export as a constructor function anyway.  So, the raw text version seems to be the best
 approach at this point*/
+import {
+  boolean,
+  Guard,
+  guard,
+  integer,
+  object,
+  optional,
+  string
+} from 'decoders';
 import { v4 as uuidv4 } from 'uuid';
 import {
   validateWorkersToWorkerMgr,
@@ -18,63 +27,132 @@ import { WORKER_MESSAGING_PROTOCOL_NAME } from './constants';
 import * as SpawnWorker from './spawn-worker.worker.ts';
 
 /**
+ * Options to control how workers errors are handled
+ */
+export interface ErrorWindowConfig {
+  /**
+   * Duration of the error window.
+   * Set to <= 0 to never terminate due to errors.
+   * Uses WorkerManager settings if unspecified.
+   */
+  errorWindowMillis?: number;
+  /**
+   * Max number of errors which can occur within the error window;
+   * Set to -1 to never terminate due to errors and 0 to terminate on the first error.
+   * Uses WorkerManager settings if unspecified.
+   */
+  errorWindowCountThreshold?: number;
+}
+
+/**
+ * Options to control how workers are torn down
+ */
+export interface WorkerTerminateConfig {
+  /**
+   * Notify the spawned worker of impending termination to perform cleanup.
+   * Will timeout after terminateReadyWaitMillis.
+   * Uses WorkerManager settings if unspecified.
+   */
+  notifyBeforeTerminate?: boolean;
+  /**
+   * Millis to allow the worker to prepare for termination.
+   * Cannot be set to less than #MIN_WORKERS_TERMINATE_CONFIG (currntely 10 seconds)
+   * as the workers need time to do minimal clean-up
+   * Uses WorkerManager settings if unspecied
+   */
+  terminateReadyWaitMillis?: number;
+}
+
+/**
+ * WorkerClient registration config.
+ */
+export interface WorkerClientConfig
+  extends ErrorWindowConfig,
+    WorkerTerminateConfig {
+  /** Hosted location of the worker to load */
+  url: string;
+}
+
+const validateWorkerClientConfig: Guard<WorkerClientConfig> = guard(
+  object({
+    url: string,
+    errorWindowMillis: optional(integer),
+    errorWindowCountThreshold: optional(integer),
+    notifyBeforeTerminate: optional(boolean),
+    terminateReadyWaitMillis: optional(integer)
+  })
+);
+
+/**
  * A map from worker client identifiers to configuration describing
  * where the worker client app is hosted, options on how it should run, etc.
  */
 export interface WorkerMap {
-  [key: string]: WorkerClientRegistration;
+  [key: string]: WorkerClientConfig;
 }
 
 /**
- * WorkerClient registration config. The 'url' parameter is the location where
- * the worker is hosted.
+ * Handler for messages received from workers which should be handled by the host
  */
-interface WorkerClientRegistration {
-  url: string;
-  // TODO add config options here like error rates, etc.
+export type WorkerToHostMessageHandler = (event: WorkerToHost) => void;
+
+/**
+ * Configuration options for the WorkerManager
+ */
+export interface WorkerManagerConfig
+  extends ErrorWindowConfig,
+    WorkerTerminateConfig {
+  onWorkerToHostMessage?: WorkerToHostMessageHandler;
 }
 
-const DEFAULT_ERROR_WINDOW_COUNT_THRESHOLD = 10;
-const DEFAULT_ERROR_WINDOW_MILLIS = 30000;
-const DEFAULT_UNLOAD_TIMEOUT_MILLIS = 10000;
+const validateWorkerManagerConfig: Guard<WorkerManagerConfig> = guard(
+  object({
+    errorWindowMillis: optional(integer),
+    errorWindowCountThreshold: optional(integer),
+    notifyBeforeTerminate: optional(boolean),
+    terminateReadyWaitMillis: optional(integer)
+  })
+);
+
+const DEFAULT_ERROR_WINDOW_CONFIG: ErrorWindowConfig = {
+  errorWindowMillis: 30000,
+  errorWindowCountThreshold: 10
+};
+
+/**
+ * Minimum number of millis that can be set to allow a worker (spawn or spawned)
+ * to terminate.
+ */
+const MIN_WORKERS_TERMINATE_CONFIG = 10000;
+
+const DEFAULT_WORKER_TERMINATE_CONFIG: WorkerTerminateConfig = {
+  notifyBeforeTerminate: true,
+  terminateReadyWaitMillis: 10000
+};
 
 /*
  * TODO for this feature:
-
- * Clean up file naming
+ * Might Need to add clientId support
+ * Need to add EnvData init support
+ * Clean up file naming and default exports
  * Decide on toastingClient api
-   * Will docs get pulled in correctly? pull them from client.ts
+ * Will docs get pulled in correctly? pull them from client.ts
  * Should we keep protocol?
  *  if so, move from constants
  *  otherwise, remove constants, send, and receive
- * move registration of worker clients into class?  auto-load?
- * Need to revisit naming:
-  * spawnWorker vs loadingWorker vs bootstrappingWorker
- * add config option so spawned workers can request shutdown
- * Move config to be per-worker
- *  make a type/class
- *  add cleanup boolean here
- *  pass into constructor for defaults and load function
- *  class also has an instance for default defaults
- *  type ManagedWorkerConfig = {
- *    url: string;
- *    // Optional?
- *    errorWindowCountThreshold: number;
- *    errorWindowMillis: number;
- *    requestUnloadNotification:boolean;
- *    unloadTimeoutMillis: number;
- *  }
  * get bi-directional comms working
  *  need to add an interface for the worker client
  *  need to add listener for events
  * Finalize workerClient api
-   * Check on impl interface idea and add NavigationRequester interface
-   
+ * Check on impl interface idea, i.e. ToastingClient,
+ * and add NavigationRequester interface
  * docs
-   *   dont forget that this is sorta dangerous with indexeddb
+ *   dont forget that this is sorta dangerous with indexeddb
+ *  TODO Need comms to workers (pub/sub, others?)
  *
+ * Final Considerations
  * Is the import of the worker good enough?
-  * Decide on class or text of the worker
+ * Decide on class or text of the worker
  * Make sure es6 target is ok
  * Make sure it works in IE
  *  check blob and fallback
@@ -114,19 +192,21 @@ interface ManagedWorker {
   phase: WorkerPhase;
   spawnWorkerToken: string;
   worker: Worker;
+  // Error Window config and tracking
+  errorWindowConfig: ErrorWindowConfig;
   errorWindowCount: number;
   errorWindowStartTimestamp: number;
+  // Terminate config and tracking
+  terminateConfig: WorkerTerminateConfig;
+  /** true if the spawn worker has loaded and we need to wait on teardown */
   awaitSpawnWorkerUnload: boolean;
+  /** boolean indicating if the spawn worker has reported terminate_ready */
   spawnWorkerUnloaded: boolean;
-  spawnedWorkerUnloadRequested: boolean;
-  awaitSpawnedWorkerUnload: boolean;
-  spawnedWorkerUnloaded: boolean;
+  /** true if the spawned worker has loaded and we need to wait on teardown */
+  awaitWorkerUnload: boolean;
+  /** boolean indicating if the spawned worker has reported terminate_ready */
+  workerUnloaded: boolean;
 }
-
-/**
- * Handler for messages received from workers which should be handled by the host
- */
-type WorkerToHostMessageHandler = (event: WorkerToHost) => void;
 
 /**
  * Spawns, manages, tracks, and provides a Message bus for web-workers
@@ -140,26 +220,38 @@ export default class WorkerManager implements EventListenerObject {
   private static ID_PREFIX = 'iframeCoordinatorWorker-';
   private static _workerIndex = 0;
   private _workers: ManagedWorker[];
-  private _errorWindowCountThreshold: number;
-  private _errorWindowMillis: number;
-  private _unloadTimeoutMillis: number;
   private _onWorkerToHostMessage: null | WorkerToHostMessageHandler;
+  private _errorWindowConfig: ErrorWindowConfig;
+  private _workerTerminateConfig: WorkerTerminateConfig;
 
-  constructor(
-    onWorkerToHostMessage: null | WorkerToHostMessageHandler = null,
-    errorWindowCountThreshold: number = DEFAULT_ERROR_WINDOW_COUNT_THRESHOLD,
-    errorWindowMillis: number = DEFAULT_ERROR_WINDOW_MILLIS,
-    unloadTimeoutMillis: number = DEFAULT_UNLOAD_TIMEOUT_MILLIS
-  ) {
+  constructor(config: WorkerManagerConfig = {}) {
     if (typeof Worker !== 'function') {
       throw new Error('noWorkerSupport');
     }
 
-    this._onWorkerToHostMessage = onWorkerToHostMessage;
+    validateWorkerManagerConfig(config);
+    // Validate the function here manually
+    // @ts-ignore
+    if (
+      typeof config.onWorkerToHostMessage !== 'null' &&
+      typeof config.onWorkerToHostMessage !== 'function'
+    ) {
+      throw new Error('onWorkerToHostMessage must be null or a function');
+    }
 
-    this._errorWindowCountThreshold = errorWindowCountThreshold;
-    this._errorWindowMillis = errorWindowMillis;
-    this._unloadTimeoutMillis = unloadTimeoutMillis;
+    this._onWorkerToHostMessage = config.onWorkerToHostMessage || null;
+    this._errorWindowConfig = buildEffectiveErrorWindowConfig(
+      config,
+      DEFAULT_ERROR_WINDOW_CONFIG
+    );
+    this._workerTerminateConfig = buildEffectiveWorkerTerminateConfig(
+      config,
+      DEFAULT_WORKER_TERMINATE_CONFIG
+    );
+    this._workerTerminateConfig.terminateReadyWaitMillis = Math.max(
+      this._workerTerminateConfig.terminateReadyWaitMillis!,
+      MIN_WORKERS_TERMINATE_CONFIG
+    );
 
     this._workers = [];
   }
@@ -167,11 +259,13 @@ export default class WorkerManager implements EventListenerObject {
   /**
    * Load a worker at the specified url
    *
-   * @param url The URL of the worker to load
+   * @param workerClientConfig Details of workerClient to load
    *
    * @returns An id to reference this worker later
    */
-  public load(url: string): string {
+  public load(workerClientConfig: WorkerClientConfig): string {
+    validateWorkerClientConfig(workerClientConfig);
+
     const id = `${WorkerManager.ID_PREFIX}${++WorkerManager._workerIndex}`;
 
     // @ts-ignore
@@ -180,20 +274,39 @@ export default class WorkerManager implements EventListenerObject {
       worker.addEventListener(curr, this);
     });
 
-    this._workers.push({
+    const managedWorker: ManagedWorker = {
       id,
-      url,
+      url: workerClientConfig.url,
       spawnWorkerToken: uuidv4(),
       worker,
       phase: WorkerPhase.LOADING,
+      errorWindowConfig: buildEffectiveErrorWindowConfig(
+        workerClientConfig,
+        this._errorWindowConfig
+      ),
       errorWindowCount: 0,
       errorWindowStartTimestamp: -1,
+      terminateConfig: buildEffectiveWorkerTerminateConfig(
+        workerClientConfig,
+        this._workerTerminateConfig
+      ),
       awaitSpawnWorkerUnload: false, // false until the spawn worker acks
       spawnWorkerUnloaded: false,
-      spawnedWorkerUnloadRequested: false,
-      awaitSpawnedWorkerUnload: false, // false unless configured and successfully bootstrapped
-      spawnedWorkerUnloaded: false
-    });
+      awaitWorkerUnload: false, // false unless configured and successfully bootstrapped
+      workerUnloaded: false
+    };
+
+    /*
+     * TODO For now, we're hard coding this to true since both workers are listening unconditionally
+     * Decide if we need this prop or it should always be true?
+     */
+    managedWorker.terminateConfig.notifyBeforeTerminate = true;
+    managedWorker.terminateConfig.terminateReadyWaitMillis = Math.max(
+      managedWorker.terminateConfig.terminateReadyWaitMillis!,
+      MIN_WORKERS_TERMINATE_CONFIG
+    );
+
+    this._workers.push(managedWorker);
 
     return id;
   }
@@ -201,8 +314,9 @@ export default class WorkerManager implements EventListenerObject {
   /**
    * Unload the worker with id, idToUnload
    *
-   * If configured and applicable, the manager will request a before_unload from both the
-   * spawning and spawned workers and wait #_unloadTimeoutMillis for a successful unload_ready response.
+   * If configured and applicable, the manager will request a beforeTerminate from both the
+   * spawning and spawned workers and wait terminateReadyWaitMillis for a successful terminateReady
+   * response.
    *
    * When all cleanup is completed or when the timeout is reached, the worker will be
    * permanently removed.
@@ -224,8 +338,8 @@ export default class WorkerManager implements EventListenerObject {
     const outstandingUnloadListener =
       (managedWorkerToUnload.awaitSpawnWorkerUnload &&
         !managedWorkerToUnload.spawnWorkerUnloaded) ||
-      (managedWorkerToUnload.awaitSpawnedWorkerUnload &&
-        !managedWorkerToUnload.spawnedWorkerUnloaded);
+      (managedWorkerToUnload.awaitWorkerUnload &&
+        !managedWorkerToUnload.workerUnloaded);
 
     if (!outstandingUnloadListener) {
       this._remove(idToUnload);
@@ -243,7 +357,7 @@ export default class WorkerManager implements EventListenerObject {
       // Set a timeout to force unload if we don't hear back.
       setTimeout(() => {
         this._remove(idToUnload, true);
-      }, this._unloadTimeoutMillis);
+      }, managedWorkerToUnload.terminateConfig.terminateReadyWaitMillis);
     }
   }
 
@@ -270,8 +384,6 @@ export default class WorkerManager implements EventListenerObject {
       }
     }
   }
-
-  // TODO Need comms to workers (pub/sub, others?)
 
   /**
    * Implements the EventListener interface so this class can handle inbound messages
@@ -393,8 +505,7 @@ export default class WorkerManager implements EventListenerObject {
         }
 
         targetManagedWorker.phase = WorkerPhase.RUNNING;
-        targetManagedWorker.awaitSpawnedWorkerUnload =
-          targetManagedWorker.spawnedWorkerUnloadRequested;
+        targetManagedWorker.awaitWorkerUnload = targetManagedWorker.terminateConfig.notifyBeforeTerminate!;
 
         return true;
       case WorkerLifecycleMsgTypes.BootstrapFailed:
@@ -469,7 +580,7 @@ export default class WorkerManager implements EventListenerObject {
           return false;
         }
 
-        targetManagedWorker.spawnedWorkerUnloaded = true;
+        targetManagedWorker.workerUnloaded = true;
         this.unload(targetManagedWorker.id);
         return true;
     }
@@ -496,12 +607,42 @@ export default class WorkerManager implements EventListenerObject {
     evt: ErrorEvent,
     targetManagedWorker: ManagedWorker
   ) {
+    if (
+      targetManagedWorker.errorWindowConfig.errorWindowMillis! <= 0 ||
+      targetManagedWorker.errorWindowConfig.errorWindowCountThreshold! < 0
+    ) {
+      // Error rate tracking disabled for worker
+      return;
+    }
+
+    if (targetManagedWorker.phase === WorkerPhase.UNLOADING) {
+      // Don't process errors for workers already unloading
+      return;
+    }
+
     const currentTimestamp = Date.now();
 
     if (targetManagedWorker.errorWindowStartTimestamp < 0) {
       // First Error
       targetManagedWorker.errorWindowStartTimestamp = currentTimestamp;
       targetManagedWorker.errorWindowCount = 1;
+
+      if (
+        targetManagedWorker.errorWindowConfig.errorWindowCountThreshold === 0
+      ) {
+        // TODO Need to add proper logging support
+        // tslint:disable-next-line
+        console.error(
+          'Error encountered on zero error tolorance worker config.  Stopping the worker',
+          {
+            workerDetails: targetManagedWorker,
+            errorDetails: evt.error
+          }
+        );
+
+        this.unload(targetManagedWorker.id);
+      }
+
       return;
     }
 
@@ -509,7 +650,7 @@ export default class WorkerManager implements EventListenerObject {
       currentTimestamp - targetManagedWorker.errorWindowStartTimestamp,
       0
     );
-    if (delta > this._errorWindowMillis) {
+    if (delta > targetManagedWorker.errorWindowConfig.errorWindowMillis!) {
       // Window expired; start new window
       targetManagedWorker.errorWindowStartTimestamp = currentTimestamp;
       targetManagedWorker.errorWindowCount = 1;
@@ -518,7 +659,8 @@ export default class WorkerManager implements EventListenerObject {
       targetManagedWorker.errorWindowCount++;
 
       if (
-        targetManagedWorker.errorWindowCount > this._errorWindowCountThreshold
+        targetManagedWorker.errorWindowCount >
+        targetManagedWorker.errorWindowConfig.errorWindowCountThreshold!
       ) {
         // TODO Need to add proper logging support
         // tslint:disable-next-line
@@ -549,4 +691,42 @@ export default class WorkerManager implements EventListenerObject {
       )
     );
   }
+}
+
+/**
+ * Helper function to merge optional values with defaults
+ */
+function buildEffectiveErrorWindowConfig(
+  options: ErrorWindowConfig,
+  defaults: ErrorWindowConfig
+): ErrorWindowConfig {
+  return {
+    errorWindowMillis:
+      typeof options.errorWindowMillis !== 'undefined'
+        ? options.errorWindowMillis
+        : defaults.errorWindowMillis,
+    errorWindowCountThreshold:
+      typeof options.errorWindowCountThreshold !== 'undefined'
+        ? options.errorWindowCountThreshold
+        : defaults.errorWindowCountThreshold
+  };
+}
+
+/**
+ * Helper function to merge optional values with defaults
+ */
+function buildEffectiveWorkerTerminateConfig(
+  options: WorkerTerminateConfig,
+  defaults: WorkerTerminateConfig
+): WorkerTerminateConfig {
+  return {
+    notifyBeforeTerminate:
+      typeof options.notifyBeforeTerminate !== 'undefined'
+        ? options.notifyBeforeTerminate
+        : defaults.notifyBeforeTerminate,
+    terminateReadyWaitMillis:
+      typeof options.terminateReadyWaitMillis !== 'undefined'
+        ? options.terminateReadyWaitMillis
+        : defaults.terminateReadyWaitMillis
+  };
 }

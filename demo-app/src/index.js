@@ -55,15 +55,17 @@ router.registerClients({
   workerClients: {
     // Standard worker
     'worker1': {
-      url: new URL("/workers/demo-worker.js", window.location).toString(),
+      url: new URL("/workers/demo-worker.js", window.location).toString()
     },
     // Tests js failures within the worker
     'workerFailureTest': {
       url: new URL("/workers/failure-worker.js", window.location).toString(),
+      errorWindowMillis: 30000,
+      errorWindowCountThreshold: 3
     },
     // Tests the 404 worker case
     'workerNotFoundTest': {
-      url: new URL("/workers/non-existant-worker.js", window.location).toString(),
+      url: new URL("/workers/non-existant-worker.js", window.location).toString()
     }
   }
 });
