@@ -15,7 +15,7 @@ let iframeClient = new Client();
 iframeClient.start();
 
 iframeClient.onPubsub(publication => {
-  console.log("Got Publish event:", publication);
+  console.log(`Client received pub-sub data on topic ${publication.topic}:`, publication.payload);
 });
 iframeClient.subscribe("host.topic");
 

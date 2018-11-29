@@ -13,6 +13,8 @@ import {
   string
 } from 'decoders';
 import { v4 as uuidv4 } from 'uuid';
+import { HostToWorkers } from '../messages/HostToWorkers';
+import { Publication } from '../messages/Publication';
 import {
   validateWorkersToWorkerMgr,
   WorkerLifecycleMsgTypes,
@@ -132,23 +134,22 @@ const DEFAULT_WORKER_TERMINATE_CONFIG: WorkerTerminateConfig = {
 
 /*
  * TODO for this feature:
+ * Revisit/remove worker config to not wait on teardown ready (might always be needed now)
  * Might Need to add clientId support
  * Need to add EnvData init support
  * Clean up file naming and default exports
- * Decide on toastingClient api
  * Will docs get pulled in correctly? pull them from client.ts
  * Should we keep protocol?
  *  if so, move from constants
  *  otherwise, remove constants, send, and receive
- * get bi-directional comms working
- *  need to add an interface for the worker client
- *  need to add listener for events
  * Finalize workerClient api
  * Check on impl interface idea, i.e. ToastingClient,
  * and add NavigationRequester interface
+ * and add PubSubClient interface (desi)
+ * decide if the onPubsub listener can be passed into the constructor
  * docs
  *   dont forget that this is sorta dangerous with indexeddb
- *  TODO Need comms to workers (pub/sub, others?)
+ * unit tests
  *
  * Final Considerations
  * Is the import of the worker good enough?
@@ -231,8 +232,8 @@ export default class WorkerManager implements EventListenerObject {
 
     validateWorkerManagerConfig(config);
     // Validate the function here manually
-    // @ts-ignore
     if (
+      // @ts-ignore Ignoring as this is external input and is outside the sanity of typescript
       typeof config.onWorkerToHostMessage !== 'null' &&
       typeof config.onWorkerToHostMessage !== 'function'
     ) {
@@ -359,6 +360,22 @@ export default class WorkerManager implements EventListenerObject {
         this._remove(idToUnload, true);
       }, managedWorkerToUnload.terminateConfig.terminateReadyWaitMillis);
     }
+  }
+
+  /**
+   * Pubish provided publication to all currently running workers.
+   *
+   * @param publication The Publication instance to send to the workers
+   */
+  public publish(publication: Publication): void {
+    this._workers
+      .filter(curr => curr.phase === WorkerPhase.RUNNING)
+      .forEach(curr => {
+        this._dispatchMessageToWorker(curr.worker, {
+          msgType: 'publish',
+          msg: publication
+        });
+      });
   }
 
   private _remove(idToRemove: string, timedOut: boolean = false) {
@@ -680,7 +697,7 @@ export default class WorkerManager implements EventListenerObject {
 
   private _dispatchMessageToWorker(
     worker: Worker,
-    msg: WorkerMgrToWorkers
+    msg: WorkerMgrToWorkers | HostToWorkers
   ): void {
     worker.postMessage(
       Object.assign(

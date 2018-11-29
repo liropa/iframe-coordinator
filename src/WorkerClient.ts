@@ -1,11 +1,18 @@
 import { ToastingClient } from './basic-types';
+import {
+  HostToWorkers,
+  validate as validateHostToWorkers
+} from './messages/HostToWorkers';
+import { Publication } from './messages/Publication';
 import { Toast } from './messages/Toast';
 import {
   validateWorkerMgrToWorker,
   WorkerLifecycleMsgTypes,
+  WorkerMgrToWorker,
   WorkerToWorkerMgr
 } from './messages/WorkerLifecycle';
 import { WorkerToHost } from './messages/WorkerToHost';
+import { PublicationHandler, SubscriptionManager } from './SubscriptionManager';
 import { WORKER_MESSAGING_PROTOCOL_NAME } from './workers/constants';
 
 const ctx: Worker = self as any;
@@ -30,6 +37,7 @@ type BeforeTerminateCallback = () => void;
  */
 export default class WorkerClient
   implements ToastingClient, EventListenerObject {
+  private _subscriptionManager: SubscriptionManager;
   private _onBeforeTerminateCallback: null | BeforeTerminateCallback;
 
   /**
@@ -42,6 +50,7 @@ export default class WorkerClient
   constructor(
     onBeforeTerminateCallback: null | BeforeTerminateCallback = null
   ) {
+    this._subscriptionManager = new SubscriptionManager();
     this._onBeforeTerminateCallback = onBeforeTerminateCallback;
 
     ctx.addEventListener('message', this);
@@ -69,6 +78,48 @@ export default class WorkerClient
   }
 
   /**
+   * Subscribes to a topic published by the host.
+   *
+   * @param topic - The topic name the worker is interested in.
+   */
+  public subscribe(topic: string): void {
+    this._subscriptionManager.subscribe(topic);
+  }
+
+  /**
+   * Unsubscribes to a topic published by the host.
+   *
+   * @param topic - The topic name the worker is no longer interested in.
+   */
+  public unsubscribe(topic: string): void {
+    this._subscriptionManager.unsubscribe(topic);
+  }
+
+  /**
+   * Publish a message to the host
+   *
+   * @param publication - The information published to the host.
+   * The topic may not be of interest, and could be ignored.
+   */
+  public publish(publication: Publication): void {
+    this._sendMessage({
+      msgType: 'publish',
+      msg: publication
+    });
+  }
+
+  /**
+   * Sets the callback for general publication messages coming from the host application.
+   *
+   * Only one callback may be set.
+   *
+   * @param callback The handler to be called when a message is published.
+   */
+  public onPubsub(callback: PublicationHandler): void {
+    this._subscriptionManager.setHandler(callback);
+  }
+
+  /**
    * Call this method to notify the WorkerManager that all cleanup of
    * this worker has been completed and it can now be terminated.
    */
@@ -84,43 +135,71 @@ export default class WorkerClient
    * @param evt The Event to handle
    */
   public handleEvent(evt: Event): void {
-    this._handleEventExhaustively(evt);
-  }
-
-  /**
-   * Private helper method with a return value to get compiler-level
-   * assurance that all cases are handled
-   *
-   * @param evt Event to handle
-   */
-  private _handleEventExhaustively(evt: Event): boolean {
     if (!(evt instanceof MessageEvent)) {
-      return false;
+      return;
     }
 
     const msgEvent = evt as MessageEvent;
 
     if (msgEvent.data.protocol !== WORKER_MESSAGING_PROTOCOL_NAME) {
       // Not a handled message type
-      return false;
+      return;
     }
 
     const mgrToWorker = validateWorkerMgrToWorker(msgEvent.data);
-    if (mgrToWorker === null) {
-      // No need to log here; manager sends other messages to the spawn worker
-      return false;
+    if (mgrToWorker !== null) {
+      this._onMgrToWorkerMsg(mgrToWorker);
+      return;
     }
 
+    const hostToWorkers = validateHostToWorkers(msgEvent.data);
+    if (hostToWorkers !== null) {
+      this._onHostToWorkersMsg(hostToWorkers);
+      return;
+    }
+
+    /*
+     * No need to log here; manager sends other messages to the spawn worker
+     * so reaching this point is an expected runtime condition.
+     */
+    return;
+  }
+
+  /*
+   * Handle applicable, incoming messages from the workerManager to this worker
+   *
+   * @returns boolean indicating successful processing to ensure all cases of
+   * the descriminated union are handled
+   */
+  private _onMgrToWorkerMsg(mgrToWorker: WorkerMgrToWorker): boolean {
     switch (mgrToWorker.msgType) {
       case WorkerLifecycleMsgTypes.BeforeTerminate:
+        // Clean up the subscription manager to ensure quick GC
+        this._subscriptionManager.removeHandler();
+
         // Unconditionally clean up this instance as a message listener
         ctx.removeEventListener('message', this);
 
         if (this._onBeforeTerminateCallback) {
+          // Call the registed clean-up callback and auto-ack clean-up
           this._onBeforeTerminateCallback();
           this.terminateReady();
         }
 
+        return true;
+    }
+  }
+
+  /*
+   * Handle applicable, incoming messages from the host to this worker
+   *
+   * @returns boolean indicating successful processing to ensure all cases of
+   * the descriminated union are handled
+   */
+  private _onHostToWorkersMsg(hostToWorkers: HostToWorkers): boolean {
+    switch (hostToWorkers.msgType) {
+      case 'publish':
+        this._subscriptionManager.dispatchMessage(hostToWorkers.msg);
         return true;
     }
   }

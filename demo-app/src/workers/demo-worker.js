@@ -1,5 +1,4 @@
 import WorkerClient from "iframe-coordinator/WorkerClient";
-// TODO Need a better demo that makes more sense?
 
 const client = new WorkerClient(() => {
   // Shutdown requested from host.  Clean-up; WorkerClient will ack
@@ -7,11 +6,26 @@ const client = new WorkerClient(() => {
     clearTimeout(currTimeout);
     currTimeout = null;
   }
+
+  // Not strictly necessary, but a good practice
+  client.unsubscribe('host.topic');
 });
 
 // Routing example
 // client.requestNavigation('/wikipedia');
 
+// Pub-Sub Example
+client.subscribe('host.topic');
+client.onPubsub(publication => {
+  console.log(`Worker received pub-sub data on topic ${publication.topic}:`, publication.payload);
+
+  client.publish({
+    topic: 'workers.topic',
+    payload: 'Hello, Host!'
+  });
+});
+
+// Toasting Example
 let currTimeout = setTimeout(sendToastMessage, getTimeout(5000, 10000));
 
 function sendToastMessage() {

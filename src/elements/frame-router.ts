@@ -101,7 +101,7 @@ class FrameRouterElement extends HTMLElement {
   }
 
   /**
-   * Subscribes to a topic published by the client fragment.
+   * Subscribes to a topic published by the client fragment or workers.
    *
    * @param topic - The topic name the host is interested in.
    */
@@ -110,7 +110,7 @@ class FrameRouterElement extends HTMLElement {
   }
 
   /**
-   * Unsubscribes to a topic published by the client fragment.
+   * Unsubscribes to a topic published by the client fragment or workers.
    *
    * @param topic - The topic name the host is no longer interested in.
    */
@@ -119,9 +119,9 @@ class FrameRouterElement extends HTMLElement {
   }
 
   /**
-   * Publish a message to the client fragment.
+   * Publish a message to the client fragment and running workers
    *
-   * @param publication - The information published to the client fragment.
+   * @param publication - The information published to the client fragment and running workers.
    * The topic may not be of interest, and could be ignored.
    */
   public publish(publication: Publication): void {
@@ -129,6 +129,8 @@ class FrameRouterElement extends HTMLElement {
       msg: publication,
       msgType: 'publish'
     });
+
+    this._workerMgr.publish(publication);
   }
 
   /**
@@ -171,10 +173,15 @@ class FrameRouterElement extends HTMLElement {
   }
 
   private _handleWorkerMessages(workerMessage: WorkerToHost) {
-    // TODO pub/sub, others?
-    this.dispatchEvent(
-      new CustomEvent(workerMessage.msgType, { detail: workerMessage.msg })
-    );
+    switch (workerMessage.msgType) {
+      case 'publish':
+        this._subscriptionManager.dispatchMessage(workerMessage.msg);
+        break;
+      default:
+        this.dispatchEvent(
+          new CustomEvent(workerMessage.msgType, { detail: workerMessage.msg })
+        );
+    }
   }
 }
 

@@ -74,14 +74,15 @@ buildNavMarkup(NAV_CONFIGS);
 
 // ----- Pub-Sub Setup
 
-// Subscribe to pub-sub events on the topic `publish.topic`
-router.subscribe("publish.topic");
+// Subscribe to pub-sub events
+router.subscribe("publish.topic"); // Default topic for clients to publish on
+router.subscribe("workers.topic"); // Demo Worker publishes to this topic
 
 // Listen to publication events (will only be emitted for subscribed topics)
 router.addEventListener("publish", event => {
   let publication = event.detail;
   console.log(
-    `Recieved pub-sub data on topic ${publication.topic}:`,
+    `Host recieved pub-sub data on topic ${publication.topic}:`,
     publication.payload
   );
 });

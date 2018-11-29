@@ -49,6 +49,13 @@ export class SubscriptionManager {
   }
 
   /**
+   * Removes the registered handler from this instance.
+   */
+  public removeHandler() {
+    this._handler = null;
+  }
+
+  /**
    * Dispatches a new publication to the handler if their topic
    * has been subscribed to.
    *
