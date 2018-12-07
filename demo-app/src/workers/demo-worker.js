@@ -9,6 +9,10 @@ const client = new WorkerClient(() => {
 
   // Not strictly necessary, but a good practice
   client.unsubscribe('host.topic');
+
+  return new Promise((resolve, reject) => {
+    setTimeout(resolve, 2000);
+  });
 });
 
 // Routing example

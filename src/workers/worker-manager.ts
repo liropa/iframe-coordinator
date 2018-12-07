@@ -51,7 +51,10 @@ export interface ErrorWindowConfig {
  */
 export interface WorkerTerminateConfig {
   /**
-   * Notify the spawned worker of impending termination to perform cleanup.
+   * Notify the spawned worker of impending termination to perform cleanup. Note:
+   * WorkerClient instances need to clean-up, so you should only set this to false
+   * if you are not using WorkerClient and your worker doesn't need to perform any cleanup.
+   *
    * Will timeout after terminateReadyWaitMillis.
    * Uses WorkerManager settings if unspecified.
    */
@@ -297,11 +300,6 @@ export default class WorkerManager implements EventListenerObject {
       workerUnloaded: false
     };
 
-    /*
-     * TODO For now, we're hard coding this to true since both workers are listening unconditionally
-     * Decide if we need this prop or it should always be true?
-     */
-    managedWorker.terminateConfig.notifyBeforeTerminate = true;
     managedWorker.terminateConfig.terminateReadyWaitMillis = Math.max(
       managedWorker.terminateConfig.terminateReadyWaitMillis!,
       MIN_WORKERS_TERMINATE_CONFIG

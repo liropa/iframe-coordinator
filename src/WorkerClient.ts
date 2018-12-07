@@ -18,11 +18,12 @@ import { WORKER_MESSAGING_PROTOCOL_NAME } from './workers/constants';
 const ctx: Worker = self as any;
 
 /**
- * Synchronous callback function to be called upon receiving before_terminate event.  This function
- * should preform any cleanup required by the worker.  Upon returning, this client will indicate
- * that the worker can now be terminated.
+ * Callback function to be called upon receiving before_terminate event.  This function
+ * should preform any cleanup required by the worker.  Return falsy to indicate cleanup is complete,
+ * truthy to indicate manual terminateReady will be provided by the client, or a thenable to trigger
+ * terminateReady once the promise resolves/rejects.
  */
-type BeforeTerminateCallback = () => void;
+type BeforeTerminateCallback = () => any;
 
 /**
  * WorkerClient is an API for headless workers to communicate with other actors
@@ -41,19 +42,47 @@ export default class WorkerClient
   private _onBeforeTerminateCallback: null | BeforeTerminateCallback;
 
   /**
-   * @param onBeforeTerminateCallback If non-null, this callback will be called upon
-   * receiving a request to prepare for termination. When the function completes, a message
-   * will be sent to the WorkerManager that the worker can now be terminated.  If you have
-   * asynchronous cleanup to do, do not provide a callback and handle the beforeTerminate message
-   * manually.  In addition, you should call #terminateReady() to indicate your cleanup is complete.
+   * @param onBeforeTerminate Optional function to be called to allow the worker to cleanup before termination
+   * If null, no cleanup will be run and the worker will immediately be eligible for termination.
+   * If a function is provided and falsy is returned, the worker will be eligible for termination
+   * when the function returns.
+   * If a function is provided and a Promise is returned, the worker will be eligible for termination
+   * when the promise resolves/rejects.
+   * If a function is provided and any other truthy value is returned, you will be requeired to indicate
+   * when the worker is ready for termination by calling #terminateReady().  Note, however, that cleanup
+   * is still subject to the wait timeout configured for this worker.
+   *
+   * See #onBeforeTerminate
    */
   constructor(
     onBeforeTerminateCallback: null | BeforeTerminateCallback = null
   ) {
     this._subscriptionManager = new SubscriptionManager();
-    this._onBeforeTerminateCallback = onBeforeTerminateCallback;
+    this.onBeforeTerminate = onBeforeTerminateCallback;
 
     ctx.addEventListener('message', this);
+  }
+
+  /**
+   * Set an optional function to be called to allow the worker to cleanup before termination
+   *
+   * If null, no cleanup will be run and the worker will immediately be eligible for termination.
+   * If a function is provided and falsy is returned, the worker will be eligible for termination
+   * when the function returns.
+   * If a function is provided and a Promise is returned, the worker will be eligible for termination
+   * when the promise resolves/rejects.
+   * If a function is provided and any other truthy value is returned, you will be required to indicate
+   * when the worker is ready for termination by calling #terminateReady().  Note, however, that cleanup
+   * is still subject to the wait timeout configured for this worker.
+   */
+  public set onBeforeTerminate(callback: null | BeforeTerminateCallback) {
+    if (callback !== null && typeof callback !== 'function') {
+      throw new Error(
+        'onBeforeTerminate must be assigned to null or a function'
+      );
+    }
+
+    this._onBeforeTerminateCallback = callback;
   }
 
   public requestToast(toast: Toast): void {
@@ -180,9 +209,32 @@ export default class WorkerClient
         // Unconditionally clean up this instance as a message listener
         ctx.removeEventListener('message', this);
 
+        let terminateReady = true;
+
         if (this._onBeforeTerminateCallback) {
           // Call the registed clean-up callback and auto-ack clean-up
-          this._onBeforeTerminateCallback();
+          let result: any;
+          try {
+            result = this._onBeforeTerminateCallback();
+          } catch (e) {
+            // Set to false to immediately terminate
+            result = false;
+          }
+
+          if (!!result) {
+            // Manual terminate or promise cases
+            terminateReady = false;
+            ['then', 'catch'].forEach(curr => {
+              if (result[curr] && typeof result[curr] === 'function') {
+                result[curr](() => {
+                  this.terminateReady();
+                });
+              }
+            });
+          }
+        }
+
+        if (terminateReady) {
           this.terminateReady();
         }
 
